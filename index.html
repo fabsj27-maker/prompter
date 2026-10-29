@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>원고 프롬프터</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Noto+Sans+KR:wght@500;700&display=swap">
+<style>
+/* Layout: editor (script left, settings rail right) → full-black stage with an amber reading line, like a studio prompter */
+:root {
+  --ink: #0f1216;
+  --panel: #171b21;
+  --line: #2a3039;
+  --text: #e8eaed;
+  --muted: #8b94a1;
+  --cue: #f2b33d;
+  --cue-soft: rgba(242, 179, 61, 0.14);
+  --said: #59606b;
+  --stage: #000;
+  --stage-text: #fff;
+  --font-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-read: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.55;
+}
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--cue); outline-offset: 2px; }
+
+/* ---------- Editor ---------- */
+.editor {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-block: 20px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.tally { width: 10px; height: 10px; border-radius: 50%; background: var(--cue); box-shadow: 0 0 0 4px var(--cue-soft); }
+.brand h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.brand p { margin: 0; color: var(--muted); font-size: 13px; }
+.start {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--cue); color: #1a1406;
+  border: 0; border-radius: 8px; padding: 12px 20px;
+  font-weight: 600; font-size: 16px; cursor: pointer;
+}
+.start:hover { filter: brightness(1.07); }
+.start kbd { font-family: var(--font-num); font-size: 12px; opacity: 0.7; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; flex: 1; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.script-pane { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.label { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sample-note { font-size: 13px; color: var(--cue); }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
+.linkbtn:hover { color: var(--text); }
+textarea#script {
+  flex: 1; min-height: 52vh; resize: vertical; width: 100%;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px 20px; font-family: var(--font-read); font-size: 17px; line-height: 1.8;
+}
+textarea#script:focus { border-color: #4a5260; outline: none; }
+.stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.stats b { font-family: var(--font-num); font-weight: 500; color: var(--text); }
+
+.rail { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.group.voice { border-color: rgba(242, 179, 61, 0.45); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field.off { opacity: 0.4; }
+.field-top { display: flex; justify-content: space-between; font-size: 14px; }
+.field-top output { font-family: var(--font-num); color: var(--cue); font-size: 13px; }
+input[type="range"] { width: 100%; accent-color: var(--cue); margin: 0; }
+.switch { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; cursor: pointer; }
+.switch small { display: block; color: var(--muted); font-size: 12px; }
+.switch input { appearance: none; width: 36px; height: 20px; border-radius: 10px; background: var(--line); position: relative; cursor: pointer; flex: none; transition: background .15s; margin: 0; }
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--text); transition: transform .15s; }
+.switch input:checked { background: var(--cue); }
+.switch input:checked::after { transform: translateX(16px); background: #1a1406; }
+.switch input:disabled { opacity: 0.4; cursor: not-allowed; }
+.note { margin: 0; font-size: 12px; color: var(--muted); }
+.note.warn { color: var(--cue); }
+
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; margin: 0; }
+.keys dt { font-family: var(--font-num); color: var(--text); }
+.keys dd { margin: 0; color: var(--muted); }
+.tips { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+.tips strong { color: var(--text); font-weight: 500; }
+
+/* ---------- Stage ---------- */
+.stage { position: fixed; inset: 0; background: var(--stage); z-index: 50; overflow: hidden; cursor: none; user-select: none; touch-action: none; }
+.stage.show-ui { cursor: default; }
+.flip { position: absolute; inset: 0; }
+.flip.mx { transform: scaleX(-1); }
+.flip.my { transform: scaleY(-1); }
+.flip.mx.my { transform: scale(-1, -1); }
+.track {
+  position: absolute; left: 50%;
+  top: var(--guide, 30%);
+  width: var(--w, 70%);
+  transform: translate3d(-50%, 0, 0);
+  margin-top: calc(var(--fs, 64px) * var(--lh, 1.5) * -0.5);
+  font-family: var(--font-read); font-weight: 500;
+  font-size: var(--fs, 64px); line-height: var(--lh, 1.5);
+  color: var(--stage-text);
+  word-break: keep-all; overflow-wrap: anywhere;
+  will-change: transform;
+  padding-bottom: 100vh;
+}
+.track p { margin: 0 0 0.9em; }
+.track .w { transition: color .2s; }
+.track .w.said { color: var(--said); }
+.track .cue { color: var(--cue); font-size: 0.55em; font-weight: 500; vertical-align: 0.2em; opacity: 0.85; }
+.track .end { color: #5b6370; font-size: 0.5em; text-align: center; letter-spacing: 0.3em; }
+.dim {
+  position: absolute; left: 0; right: 0; top: 0;
+  height: calc(var(--guide, 30%) - var(--fs, 64px) * var(--lh, 1.5) * 0.5);
+  background: linear-gradient(to bottom, rgba(0,0,0,.88), rgba(0,0,0,.55));
+  pointer-events: none;
+}
+.guide { position: absolute; left: 0; right: 0; top: var(--guide, 30%); height: 0; pointer-events: none; }
+.guide::before, .guide::after { content: ""; position: absolute; top: -12px; border: 12px solid transparent; }
+.guide::before { left: 0; border-left: 18px solid var(--cue); }
+.guide::after { right: 0; border-right: 18px solid var(--cue); }
+
+.hud {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; justify-content: space-between; gap: 16px;
+  font-family: var(--font-num); font-size: 13px; color: #5b6370;
+  pointer-events: none;
+}
+.hud .rec { color: var(--cue); }
+.hud .err { color: #ff8a7a; font-family: var(--font-ui); }
+.heard {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  max-width: min(90vw, 900px);
+  font-family: var(--font-ui); font-size: 14px; color: #4a515c;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: center;
+  pointer-events: none;
+}
+.progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #111; }
+.progress i { display: block; height: 100%; width: 0; background: #3a404a; }
+
+.controls {
+  position: absolute; left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(23, 27, 33, 0.94);
+  border: 1px solid var(--line); border-radius: 12px; padding: 6px;
+  max-width: calc(100vw - 32px);
+  flex-wrap: wrap; justify-content: center;
+  transition: opacity .25s;
+}
+.stage:not(.show-ui) .controls { opacity: 0; pointer-events: none; }
+.controls button { background: transparent; border: 0; border-radius: 8px; min-width: 40px; height: 40px; padding: 0 10px; font-size: 14px; cursor: pointer; color: var(--text); }
+.controls button:hover { background: #262c35; }
+.controls button.on { color: var(--cue); }
+.controls button:disabled { opacity: 0.35; cursor: not-allowed; }
+.controls .play { background: var(--cue); color: #1a1406; font-weight: 600; min-width: 84px; }
+.controls .play:hover { background: var(--cue); filter: brightness(1.08); }
+.controls .readout { font-family: var(--font-num); font-size: 13px; color: var(--muted); padding: 0 6px; min-width: 52px; text-align: center; }
+.controls .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+
+.count { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-num); font-size: 22vmin; color: var(--cue); background: rgba(0,0,0,.6); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .controls, .switch input, .switch input::after, .track .w { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="editor" id="editor">
+  <header class="top">
+    <div class="brand">
+      <span class="tally" aria-hidden="true"></span>
+      <div>
+        <h1>원고 프롬프터</h1>
+        <p>카메라 바로 아래 화면에 띄워두고, 노란 표시 줄만 따라 읽으세요.</p>
+      </div>
+    </div>
+    <button class="start" id="startBtn" type="button">프롬프터 시작 <kbd>⌘/Ctrl + Enter</kbd></button>
+  </header>
+
+  <div class="grid">
+    <section class="script-pane">
+      <div class="pane-head">
+        <label class="label" for="script">원고</label>
+        <span class="sample-note" id="sampleNote">예시 원고예요. 지우고 내 원고를 붙여넣으세요.</span>
+      </div>
+      <textarea id="script" spellcheck="false" placeholder="여기에 원고를 붙여넣으세요.&#10;&#10;빈 줄로 문단을 나누고, [웃으면서] 처럼 대괄호 안에 쓴 말은 작고 노랗게 지시문으로 표시돼요."></textarea>
+      <div class="stats">
+        <span>글자 <b id="statChars">0</b>자</span>
+        <span>예상 길이 <b id="statTime">0:00</b></span>
+        <span>[대괄호] 안은 읽지 않는 지시문</span>
+        <button class="linkbtn" id="loadSample" type="button">예시 원고 다시 불러오기</button>
+      </div>
+    </section>
+
+    <aside class="rail">
+      <div class="group voice">
+        <div class="label">따라가기</div>
+        <label class="switch"><span>내 목소리 따라가기<small>말하는 위치에 맞춰 화면이 움직여요</small></span><input type="checkbox" id="voice"></label>
+        <p class="note" id="voiceNote">처음 켤 때 마이크 허용 창이 떠요. 인터넷 연결이 필요해요.</p>
+      </div>
+
+      <div class="group">
+        <div class="label">글자</div>
+        <div class="field">
+          <div class="field-top"><label for="fontSize">글자 크기</label><output id="fontSizeOut"></output></div>
+          <input type="range" id="fontSize" min="28" max="160" step="2">
+        </div>
+        <div class="field">
+          <div class="field-top"><label for="width">글줄 폭</label><output id="widthOut"></output></div>
+          <input type="range" id="width" min="30" max="96" step="2">
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="label">스크롤</div>
+        <div class="field" id="speedField">
+          <div class="field-top"><label for="speed">자동 속도</label><output id="speedOut"></output></div>
+          <input type="range" id="speed" min="1" max="30" step="1">
+        </div>
+        <div class="field">
+          <div class="field-top"><label for="guide">읽는 줄 높이 (위에서)</label><output id="guideOut"></output></div>
+          <input type="range" id="guide" min="12" max="60" step="1">
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="label">화면</div>
+        <label class="switch"><span>읽은 줄 어둡게<small>지나간 문장에 눈이 안 가게</small></span><input type="checkbox" id="dimRead"></label>
+        <label class="switch"><span>시작 전 3초 카운트다운</span><input type="checkbox" id="countdown"></label>
+        <label class="switch"><span>좌우 반전<small>프롬프터 유리(반사판) 쓸 때</small></span><input type="checkbox" id="mirrorX"></label>
+        <label class="switch"><span>상하 반전</span><input type="checkbox" id="mirrorY"></label>
+      </div>
+
+      <div class="group">
+        <div class="label">단축키 (재생 중)</div>
+        <dl class="keys">
+          <dt>Space</dt><dd>재생 / 일시정지 (음성 모드에선 듣기 켜기 / 끄기)</dd>
+          <dt>V</dt><dd>음성 따라가기 켜기 / 끄기</dd>
+          <dt>↑ ↓</dt><dd>자동 속도 올리기 / 내리기</dd>
+          <dt>← →</dt><dd>한 줄 뒤로 / 앞으로</dd>
+          <dt>PgUp PgDn</dt><dd>세 줄씩 이동 (발표 리모컨)</dd>
+          <dt>+ −</dt><dd>글자 크기</dd>
+          <dt>M</dt><dd>좌우 반전</dd>
+          <dt>Home</dt><dd>처음으로</dd>
+          <dt>Esc</dt><dd>원고 편집으로 돌아가기</dd>
+        </dl>
+      </div>
+
+      <div class="group">
+        <div class="label">티 안 나게 읽는 요령</div>
+        <ul class="tips">
+          <li><strong>창을 카메라 바로 아래에.</strong> 읽는 줄을 위쪽(25~30%)에 두면 시선이 렌즈와 거의 같아요.</li>
+          <li><strong>글줄 폭은 좁게.</strong> 폭이 넓으면 눈동자가 좌우로 움직이는 게 보여요. 카메라와 멀수록 더 좁히세요.</li>
+          <li><strong>음성 모드에서 위치를 놓치면</strong> ← → 키로 한 줄씩 맞춰주세요. 다시 원고대로 읽으면 바로 따라와요.</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div class="stage" id="stage" hidden>
+  <div class="flip" id="flip">
+    <div class="track" id="track"></div>
+    <div class="dim" id="dim"></div>
+    <div class="guide" aria-hidden="true"></div>
+  </div>
+  <div class="hud"><span id="hudTime">00:00</span><span id="hudState">일시정지</span></div>
+  <div class="heard" id="heard" hidden></div>
+  <div class="progress"><i id="progressBar"></i></div>
+  <div class="controls" id="controls">
+    <button type="button" id="cExit" title="원고 편집으로 (Esc)">← 편집</button>
+    <span class="sep"></span>
+    <button type="button" id="cBack" title="처음으로 (Home)">⏮</button>
+    <button type="button" class="play" id="cPlay">재생</button>
+    <button type="button" id="cVoice" title="음성 따라가기 (V)">🎙 음성</button>
+    <span class="sep"></span>
+    <button type="button" id="cSlow" title="느리게 (↓)">−</button>
+    <span class="readout" id="cSpeed">속도 6</span>
+    <button type="button" id="cFast" title="빠르게 (↑)">+</button>
+    <span class="sep"></span>
+    <button type="button" id="cSmaller" title="글자 작게 (−)">가−</button>
+    <button type="button" id="cBigger" title="글자 크게 (+)">가+</button>
+    <button type="button" id="cMirror" title="좌우 반전 (M)">⇋ 반전</button>
+    <button type="button" id="cFull" title="전체화면">⛶ 전체화면</button>
+  </div>
+  <div class="count" id="count" hidden></div>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  const SAMPLE = `안녕하세요, 여러분. 오늘은 제가 요즘 매일 아침 하고 있는 작은 습관 하나를 소개해 드리려고 해요.
+
+[잠깐 멈추고 카메라 보기]
+
+딱 10분이면 되는데요, 이걸 시작하고 나서 하루가 정말 달라졌어요. 거창한 건 아니고, 일어나자마자 휴대폰 대신 노트를 펴는 거예요.
+
+처음에는 뭘 써야 할지 몰라서 그냥 어제 있었던 일을 한 줄씩 적었어요. 그런데 일주일쯤 지나니까 신기하게도 오늘 하고 싶은 일이 먼저 떠오르더라고요.
+
+[웃으면서]
+
+물론 매일 성공한 건 아니에요. 늦잠 잔 날도 있고, 그냥 넘어간 날도 많았죠. 그래도 괜찮아요. 중요한 건 다시 펴는 거니까요.
+
+오늘 영상에서는 제가 실제로 쓰는 노트와, 쓰는 순서를 하나씩 보여드릴게요.
+
+[화면 전환: 노트 클로즈업]
+
+그럼 바로 시작해 볼까요?`;
+
+  const DEFAULTS = { fontSize: 64, speed: 6, width: 64, guide: 28, dimRead: true, countdown: true, mirrorX: false, mirrorY: false, voice: false };
+  const S = Object.assign({}, DEFAULTS, store.get('tp.settings', {}));
+  if (!SR) S.voice = false;
+  const save = () => store.set('tp.settings', S);
+
+  /* ---------- Editor ---------- */
+  const ta = $('script');
+  ta.value = store.get('tp.script', SAMPLE);
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const m = Math.floor(sec / 60), s = sec % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+  function updateStats() {
+    const spoken = ta.value.replace(/\[[^\]\n]*\]/g, '').replace(/\s/g, '');
+    $('statChars').textContent = spoken.length.toLocaleString('ko-KR');
+    // 유튜브 말하기 기준 초당 약 5음절
+    $('statTime').textContent = fmtTime(spoken.length / 5);
+    $('sampleNote').hidden = ta.value !== SAMPLE;
+  }
+  ta.addEventListener('input', () => { store.set('tp.script', ta.value); updateStats(); });
+  $('loadSample').addEventListener('click', () => { ta.value = SAMPLE; store.set('tp.script', SAMPLE); updateStats(); });
+  updateStats();
+
+  const ranges = { fontSize: (v) => v + 'px', width: (v) => v + '%', speed: (v) => String(v), guide: (v) => v + '%' };
+  Object.keys(ranges).forEach((k) => {
+    const el = $(k), out = $(k + 'Out');
+    el.value = S[k]; out.textContent = ranges[k](S[k]);
+    el.addEventListener('input', () => { S[k] = +el.value; out.textContent = ranges[k](S[k]); save(); });
+  });
+  const SWITCHES = ['dimRead', 'countdown', 'mirrorX', 'mirrorY', 'voice'];
+  SWITCHES.forEach((k) => {
+    const el = $(k);
+    el.checked = !!S[k];
+    el.addEventListener('change', () => { S[k] = el.checked; save(); syncVoiceUI(); });
+  });
+  function syncEditorControls() {
+    Object.keys(ranges).forEach((k) => { $(k).value = S[k]; $(k + 'Out').textContent = ranges[k](S[k]); });
+    SWITCHES.forEach((k) => { $(k).checked = !!S[k]; });
+    syncVoiceUI();
+  }
+  function syncVoiceUI() {
+    $('speedField').classList.toggle('off', S.voice);
+    $('cVoice').classList.toggle('on', S.voice);
+    $('cVoice').disabled = !SR;
+    if (!SR) {
+      $('voice').disabled = true;
+      $('voiceNote').textContent = '이 브라우저는 음성 인식을 지원하지 않아요. Chrome으로 열어주세요.';
+      $('voiceNote').className = 'note warn';
+    } else if (location.protocol === 'file:') {
+      $('voiceNote').textContent = '파일로 직접 열면 마이크 허용을 매번 물어볼 수 있어요. 함께 받은 "프롬프터 실행" 파일로 열면 한 번만 허용하면 돼요.';
+      $('voiceNote').className = 'note';
+    }
+  }
+  syncVoiceUI();
+
+  /* ---------- Stage ---------- */
+  const stage = $('stage'), flip = $('flip'), track = $('track');
+  let pos = 0, playing = false, last = 0, elapsed = 0, open = false, counting = false, raf = 0, uiTimer = 0;
+
+  // 음성 매칭용: 원고에서 지시문을 뺀 글자들(chars)과, 각 글자가 속한 단어 번호(charWord)
+  let words = [], chars = '', charWord = [], cursor = 0, saidUpTo = -1, targetPos = null;
+  const norm = (s) => s.toLowerCase().replace(/[^0-9a-zㄱ-ㆎ가-힣]/g, '');
+
+  function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function renderScript(text) {
+    let html = '', wi = 0;
+    const cs = [], cw = [];
+    text.trim().split(/\n\s*\n/).filter(Boolean).forEach((para) => {
+      const lines = para.trim().split('\n').map((line) =>
+        line.split(/(\[[^\]\n]+\])/).map((seg) => {
+          if (/^\[[^\]\n]+\]$/.test(seg)) return '<span class="cue">' + esc(seg) + '</span>';
+          return seg.split(/(\s+)/).map((tok) => {
+            if (!tok || /^\s+$/.test(tok)) return tok;
+            const n = norm(tok);
+            for (const ch of n) { cs.push(ch); cw.push(wi); }
+            return '<span class="w" data-i="' + (wi++) + '">' + esc(tok) + '</span>';
+          }).join('');
+        }).join('')
+      );
+      html += '<p>' + lines.join('<br>') + '</p>';
+    });
+    track.innerHTML = html + '<p class="end">— 끝 —</p>';
+    words = Array.from(track.querySelectorAll('.w'));
+    chars = cs.join('');
+    charWord = cw;
+    cursor = 0; saidUpTo = -1; targetPos = null;
+  }
+
+  function lineH() { return S.fontSize * 1.5; }
+  function maxPos() { return Math.max(0, track.scrollHeight - window.innerHeight - lineH()); }
+  function applyStage() {
+    stage.style.setProperty('--fs', S.fontSize + 'px');
+    stage.style.setProperty('--w', S.width + '%');
+    stage.style.setProperty('--guide', S.guide + '%');
+    flip.classList.toggle('mx', S.mirrorX);
+    flip.classList.toggle('my', S.mirrorY);
+    $('dim').hidden = !S.dimRead;
+    $('cMirror').classList.toggle('on', S.mirrorX);
+    $('cSpeed').textContent = '속도 ' + S.speed;
+    ['cSlow', 'cFast'].forEach((id) => { $(id).disabled = S.voice; });
+    $('cSpeed').style.opacity = S.voice ? 0.35 : 1;
+    $('heard').hidden = !S.voice;
+    syncVoiceUI();
+  }
+  function pxPerSec() { return S.speed * S.fontSize * 0.08; }
+  function clampPos() { pos = Math.min(Math.max(0, pos), maxPos()); }
+  function draw() {
+    track.style.transform = 'translate3d(-50%,' + (-pos) + 'px,0)';
+    const m = maxPos();
+    $('progressBar').style.width = (m ? (pos / m) * 100 : 0) + '%';
+    $('hudTime').textContent = fmtTime(elapsed).padStart(5, '0');
+  }
+  function setHud(text, cls) { $('hudState').textContent = text; $('hudState').className = cls || ''; }
+  function setPlaying(p) {
+    playing = p;
+    last = performance.now();
+    $('cPlay').textContent = p ? (S.voice ? '듣기 멈춤' : '일시정지') : (S.voice ? '듣기 시작' : '재생');
+    if (!S.voice) setHud(p ? '● 재생 중' : '일시정지', p ? 'rec' : '');
+    if (p) scheduleHideUI(); else showUI(true);
+  }
+  function loop(ts) {
+    if (!open) return;
+    const dt = Math.min(0.1, (ts - last) / 1000);
+    if (playing) elapsed += dt;
+    if (S.voice) {
+      if (targetPos != null) {
+        // 말한 위치로 부드럽게 따라가기
+        pos += (targetPos - pos) * Math.min(1, dt * 5);
+        clampPos();
+      }
+    } else if (playing) {
+      pos += pxPerSec() * dt;
+      if (pos >= maxPos()) { pos = maxPos(); setPlaying(false); }
+    }
+    last = ts;
+    draw();
+    raf = requestAnimationFrame(loop);
+  }
+
+  /* ---------- Voice follow ---------- */
+  // 최근에 들린 글자 꼬리(tail)와 가장 비슷한 원고 위치를 현재 위치 근처에서 찾는다
+  function locate(heard) {
+    const tail = heard.slice(-12);
+    if (tail.length < 3 || !chars.length) return -1;
+    const tb = new Set();
+    for (let i = 0; i < tail.length - 1; i++) tb.add(tail.substr(i, 2));
+    const from = Math.max(0, cursor - 40), to = Math.min(chars.length, cursor + 260);
+    let best = -1, bestScore = 0;
+    for (let e = Math.max(from + 2, 2); e <= to; e++) {
+      const s = Math.max(0, e - tail.length - 2);
+      const seen = new Set();
+      let sc = 0;
+      for (let j = s; j < e - 1; j++) {
+        const b = chars[j] + chars[j + 1];
+        if (tb.has(b) && !seen.has(b)) { sc++; seen.add(b); }
+      }
+      if (chars[e - 2] + chars[e - 1] === tail.slice(-2)) sc += 2;
+      const adj = sc - Math.abs(e - cursor) * 0.004;
+      if (adj > bestScore) { bestScore = adj; best = e; }
+    }
+    const need = Math.max(3, Math.floor((tail.length - 1) * 0.5));
+    return bestScore >= need ? best : -1;
+  }
+  function markSaid(upTo) {
+    if (upTo > saidUpTo) for (let i = saidUpTo + 1; i <= upTo; i++) words[i] && words[i].classList.add('said');
+    else for (let i = upTo + 1; i <= saidUpTo; i++) words[i] && words[i].classList.remove('said');
+    saidUpTo = upTo;
+  }
+  function setCursor(c) {
+    cursor = Math.max(0, Math.min(chars.length, c));
+    const wi = cursor > 0 ? charWord[cursor - 1] : -1;
+    markSaid(wi);
+    // 방금 읽은 단어 다음 단어가 있는 줄을 읽는 줄에 맞춘다
+    const next = words[Math.min(words.length - 1, wi + 1)];
+    if (next) targetPos = next.offsetTop;
+  }
+  function handleHeard(text) {
+    const heard = norm(text).slice(-24);
+    $('heard').textContent = text.slice(-60);
+    const at = locate(heard);
+    if (at > 0) setCursor(at);
+  }
+  // 수동으로 위치를 옮기면 음성 기준 위치도 화면에 맞춰 다시 잡는다
+  function syncCursorToPos() {
+    if (!words.length) return;
+    let wi = 0;
+    for (let i = 0; i < words.length; i++) { if (words[i].offsetTop <= pos + 1) wi = i; else break; }
+    const ci = charWord.indexOf(wi);
+    cursor = ci < 0 ? 0 : ci;
+    markSaid(wi - 1);
+    targetPos = null;
+  }
+
+  let rec = null, wantListen = false;
+  function startListen() {
+    if (!SR || rec) return;
+    wantListen = true;
+    rec = new SR();
+    rec.lang = 'ko-KR';
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onstart = () => setHud('🎙 듣는 중', 'rec');
+    rec.onresult = (e) => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      handleHeard(t);
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        wantListen = false;
+        setHud('마이크가 막혀 있어요. 주소창 왼쪽 아이콘에서 마이크를 허용해 주세요.', 'err');
+      } else if (e.error === 'network') {
+        wantListen = false;
+        setHud('음성 인식에 인터넷 연결이 필요해요.', 'err');
+      } else if (e.error === 'audio-capture') {
+        wantListen = false;
+        setHud('마이크를 찾지 못했어요. 연결을 확인해 주세요.', 'err');
+      }
+    };
+    rec.onend = () => {
+      rec = null;
+      // Chrome은 일정 시간이 지나면 듣기를 스스로 끝내므로 다시 시작한다
+      if (wantListen && open && playing && S.voice) setTimeout(() => { if (wantListen && open && playing && S.voice) startListen(); }, 150);
+      else if (playing && S.voice) setPlaying(false);
+    };
+    try { rec.start(); } catch (err) { rec = null; }
+  }
+  function stopListen() {
+    wantListen = false;
+    if (rec) { try { rec.stop(); } catch (e) {} }
+    if (S.voice) setHud('🎙 듣기 멈춤', '');
+  }
+  function setVoice(on) {
+    if (on && !SR) return;
+    const wasPlaying = playing;
+    if (wasPlaying) { stopListen(); setPlaying(false); }
+    S.voice = on; save();
+    applyStage();
+    if (on) { syncCursorToPos(); setHud('🎙 듣기 멈춤', ''); }
+    else setHud('일시정지', '');
+    setPlaying(false);
+  }
+
+  /* ---------- Controls ---------- */
+  function showUI(stay) {
+    stage.classList.add('show-ui');
+    clearTimeout(uiTimer);
+    if (!stay) scheduleHideUI();
+  }
+  function scheduleHideUI() {
+    clearTimeout(uiTimer);
+    uiTimer = setTimeout(() => { if (playing) stage.classList.remove('show-ui'); }, 2200);
+  }
+
+  let wakeLock = null;
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+  function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else document.documentElement.requestFullscreen().catch(() => {});
+    } catch (e) {}
+  }
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function play() {
+    if (playing || counting) return;
+    if (!S.voice && pos >= maxPos()) pos = 0;
+    if (S.countdown) {
+      counting = true;
+      const c = $('count');
+      c.hidden = false;
+      for (let n = 3; n >= 1; n--) {
+        c.textContent = n;
+        await sleep(800);
+        if (!open) break;
+      }
+      c.hidden = true;
+      counting = false;
+      if (!open) return;
+    }
+    setPlaying(true);
+    if (S.voice) startListen();
+  }
+  function pause() {
+    if (S.voice) stopListen();
+    setPlaying(false);
+  }
+  function togglePlay() { playing ? pause() : play(); }
+
+  function openStage() {
+    open = true;
+    pos = 0; elapsed = 0;
+    stage.hidden = false;
+    renderScript(ta.value || ' ');
+    $('editor').setAttribute('aria-hidden', 'true');
+    applyStage();
+    $('heard').textContent = '';
+    setPlaying(false);
+    setHud(S.voice ? '🎙 듣기 멈춤' : '일시정지', '');
+    keepAwake();
+    if (window.matchMedia('(min-width: 900px)').matches) toggleFullscreen();
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(loop);
+    $('cPlay').focus({ preventScroll: true });
+  }
+  function closeStage() {
+    stopListen();
+    open = false; playing = false; counting = false;
+    $('count').hidden = true;
+    cancelAnimationFrame(raf);
+    stage.hidden = true;
+    $('editor').removeAttribute('aria-hidden');
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    syncEditorControls();
+    ta.focus({ preventScroll: true });
+  }
+
+  function changeSpeed(d) { if (S.voice) return; S.speed = Math.min(30, Math.max(1, S.speed + d)); applyStage(); save(); showUI(); }
+  function changeSize(d) {
+    const m = maxPos(), ratio = m ? pos / m : 0;
+    S.fontSize = Math.min(160, Math.max(28, S.fontSize + d));
+    applyStage(); save();
+    pos = ratio * maxPos();
+    if (S.voice) { const c = cursor; syncCursorToPos(); setCursor(c); }
+    showUI();
+  }
+  function manualMove() { clampPos(); if (S.voice) syncCursorToPos(); }
+  function nudge(lines) { pos += lines * lineH(); manualMove(); showUI(); }
+  function restart() { pos = 0; elapsed = 0; manualMove(); }
+
+  $('startBtn').addEventListener('click', openStage);
+  $('cExit').addEventListener('click', closeStage);
+  $('cPlay').addEventListener('click', togglePlay);
+  $('cVoice').addEventListener('click', () => setVoice(!S.voice));
+  $('cBack').addEventListener('click', () => { pause(); restart(); });
+  $('cSlow').addEventListener('click', () => changeSpeed(-1));
+  $('cFast').addEventListener('click', () => changeSpeed(1));
+  $('cSmaller').addEventListener('click', () => changeSize(-4));
+  $('cBigger').addEventListener('click', () => changeSize(4));
+  $('cMirror').addEventListener('click', () => { S.mirrorX = !S.mirrorX; applyStage(); save(); });
+  $('cFull').addEventListener('click', toggleFullscreen);
+  $('controls').addEventListener('pointerdown', (e) => e.stopPropagation());
+
+  // 화면 드래그/휠로 위치 조절, 짧게 탭하면 재생/정지
+  let drag = null;
+  stage.addEventListener('pointerdown', (e) => {
+    drag = { y: e.clientY, moved: 0 };
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  stage.addEventListener('pointermove', (e) => {
+    showUI();
+    if (!drag) return;
+    const dy = e.clientY - drag.y;
+    drag.y = e.clientY;
+    drag.moved += Math.abs(dy);
+    pos -= dy * (S.mirrorY ? -1 : 1);
+    clampPos();
+    targetPos = null;
+  });
+  stage.addEventListener('pointerup', (e) => {
+    if (drag && drag.moved < 8 && e.target.closest && !e.target.closest('.controls')) togglePlay();
+    else if (drag) manualMove();
+    drag = null;
+  });
+  stage.addEventListener('pointercancel', () => { drag = null; });
+  let wheelTimer = 0;
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    pos += e.deltaY * (S.mirrorY ? -1 : 1);
+    clampPos();
+    targetPos = null;
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(manualMove, 150);
+    showUI();
+  }, { passive: false });
+
+  document.addEventListener('keydown', (e) => {
+    if (!open) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openStage(); }
+      return;
+    }
+    const k = e.key;
+    let handled = true;
+    if (k === ' ' || k === 'b' || k === 'B' || k === '.') togglePlay();
+    else if (k === 'v' || k === 'V') setVoice(!S.voice);
+    else if (k === 'ArrowUp') changeSpeed(1);
+    else if (k === 'ArrowDown') changeSpeed(-1);
+    else if (k === 'ArrowLeft') nudge(-1);
+    else if (k === 'ArrowRight') nudge(1);
+    else if (k === 'PageUp') nudge(-3);
+    else if (k === 'PageDown') nudge(3);
+    else if (k === '+' || k === '=') changeSize(4);
+    else if (k === '-' || k === '_') changeSize(-4);
+    else if (k === 'm' || k === 'M') { S.mirrorX = !S.mirrorX; applyStage(); save(); }
+    else if (k === 'Home') restart();
+    else if (k === 'Escape') closeStage();
+    else handled = false;
+    if (handled) e.preventDefault();
+  });
+  window.addEventListener('resize', () => { if (open) clampPos(); });
+  document.addEventListener('visibilitychange', () => {
+    if (open && document.visibilityState === 'visible' && !wakeLock) keepAwake();
+    if (document.visibilityState === 'hidden') wakeLock = null;
+  });
+
+  // 마이크 없이 매칭을 시험할 때 쓰는 입구 (개발자 도구 콘솔에서 사용)
+  window.prompterFeed = (text) => { if (open) handleHeard(text); return { cursor, word: words[charWord[cursor - 1]]?.textContent }; };
+})();
+</script>
+</body>
+</html>
