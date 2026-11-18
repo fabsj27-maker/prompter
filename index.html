@@ -349,6 +349,19 @@ input[type="range"] { width: 100%; accent-color: var(--cue); margin: 0; }
   /* ---------- Editor ---------- */
   const ta = $('script');
   ta.value = store.get('tp.script', SAMPLE);
+  // 시트의 '프롬프터로 열기'로 넘어온 원고(#script=...)가 있으면 그걸로 채웁니다.
+  // 주소의 # 뒤 내용은 브라우저 안에서만 쓰이고 서버로 전송되지 않습니다.
+  function loadFromHash() {
+    const m = location.hash.match(/^#script=([\s\S]*)$/);
+    if (!m) return false;
+    try {
+      const text = decodeURIComponent(m[1]);
+      if (text.trim()) { ta.value = text; store.set('tp.script', text); }
+    } catch (e) {}
+    history.replaceState(null, '', location.pathname + location.search);
+    return true;
+  }
+  loadFromHash();
 
   function fmtTime(sec) {
     sec = Math.max(0, Math.round(sec));
@@ -365,6 +378,7 @@ input[type="range"] { width: 100%; accent-color: var(--cue); margin: 0; }
   ta.addEventListener('input', () => { store.set('tp.script', ta.value); updateStats(); });
   $('loadSample').addEventListener('click', () => { ta.value = SAMPLE; store.set('tp.script', SAMPLE); updateStats(); });
   updateStats();
+  window.addEventListener('hashchange', () => { if (loadFromHash()) updateStats(); });
 
   const ranges = { fontSize: (v) => v + 'px', width: (v) => v + '%', speed: (v) => String(v), guide: (v) => v + '%' };
   Object.keys(ranges).forEach((k) => {
